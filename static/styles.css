@@ -36,7 +36,8 @@ body {
 }
 
 button,
-select {
+select,
+input[type="file"] {
   font: inherit;
 }
 
@@ -111,7 +112,8 @@ h1 {
 }
 
 button,
-select {
+select,
+input[type="file"] {
   min-height: 40px;
   border-radius: 8px;
   border: 1px solid var(--border);
@@ -163,7 +165,8 @@ label {
   min-width: 0;
 }
 
-select {
+select,
+input[type="file"] {
   width: 100%;
   min-width: 0;
   padding: 0 10px;
@@ -171,11 +174,23 @@ select {
   text-overflow: ellipsis;
 }
 
+input[type="file"] {
+  padding: 8px 10px;
+}
+
 .toggle {
   align-content: end;
   grid-template-columns: auto 1fr;
   align-items: center;
   color: var(--text);
+}
+
+.file-action {
+  align-content: end;
+}
+
+.file-action button {
+  width: 100%;
 }
 
 .toggle input {

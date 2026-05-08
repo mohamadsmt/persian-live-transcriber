@@ -8,6 +8,7 @@ The app runs a FastAPI server on localhost, serves a browser UI in Persian, tran
 
 - Live Persian speech-to-text from selected audio input devices.
 - Audio source modes for microphone, system audio, or a mixed microphone/system stream.
+- Uploaded audio-file transcription through the same Whisper model.
 - Whisper multilingual `large-v3` transcription through `lightning-whisper-mlx`.
 - Persian language locked to `fa`.
 - Optional local text cleanup through Ollama using `gpt-oss:20b`.
@@ -52,6 +53,12 @@ Open the UI:
 ```text
 http://127.0.0.1:8765
 ```
+
+Use the live controls to transcribe from microphone/system audio, or choose an audio file in the
+file picker and click "ترنسکریپت فایل". File transcription resets the current session output and
+fills the same raw, cleaned, unified text, summary, and export panes. Files are converted locally
+with `ffmpeg`, so common audio/video containers with audio tracks such as `mp3`, `wav`, `m4a`,
+`mp4`, `ogg`, `flac`, and `aac` are supported when your local ffmpeg build can decode them.
 
 The start script sets local cache directories by default:
 
@@ -127,8 +134,19 @@ tests/
 - `GET /` serves the web UI.
 - `GET /api/status` reports runtime dependency, audio, ASR, BlackHole, and Ollama status.
 - `GET /api/devices` lists available input devices.
+- `POST /api/transcribe-file` transcribes one uploaded audio file from the raw request body.
 - `POST /api/summarize` generates an on-demand detailed Persian summary for provided session text.
 - `WS /ws/transcribe` streams live transcription events.
+
+File transcription query parameters:
+
+- `cleanup`: `true` or `false`
+- `filename`: optional display filename
+
+The request body is the audio file bytes directly, not `multipart/form-data`. The local upload
+limit is 500 MB. The server stores the file only in a temporary directory, converts it to 16 kHz
+mono WAV with `ffmpeg`, and then transcribes the converted file as one full Whisper job for higher
+context quality.
 
 WebSocket query parameters:
 

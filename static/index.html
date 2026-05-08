@@ -42,6 +42,14 @@
             <input id="cleanupToggle" type="checkbox" checked />
             <span>پاک‌سازی متن با Ollama</span>
           </label>
+          <label>
+            فایل صوتی
+            <input id="audioFile" type="file" accept="audio/*,.aac,.flac,.m4a,.mp3,.mp4,.ogg,.wav" />
+          </label>
+          <label class="file-action">
+            پردازش فایل
+            <button id="transcribeFileButton" type="button">ترنسکریپت فایل</button>
+          </label>
         </section>
 
         <section class="panels">
@@ -117,6 +125,6 @@
         </footer>
       </section>
     </main>
-    <script src="/static/app.js?v=20260508-session-output" type="module"></script>
+    <script src="/static/app.js?v=20260508-file-upload" type="module"></script>
   </body>
 </html>

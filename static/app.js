@@ -5,6 +5,7 @@ const state = {
   stopped: false,
   summarizing: false,
   summaryText: "",
+  uploading: false,
 };
 
 const el = {
@@ -16,6 +17,8 @@ const el = {
   micDevice: document.querySelector("#micDevice"),
   systemDevice: document.querySelector("#systemDevice"),
   cleanupToggle: document.querySelector("#cleanupToggle"),
+  audioFile: document.querySelector("#audioFile"),
+  transcribeFileButton: document.querySelector("#transcribeFileButton"),
   rawOutput: document.querySelector("#rawOutput"),
   cleanOutput: document.querySelector("#cleanOutput"),
   sessionOutput: document.querySelector("#sessionOutput"),
@@ -26,6 +29,22 @@ const el = {
 
 function setStatus(message) {
   el.statusLine.textContent = message;
+}
+
+function setControlState() {
+  const live = Boolean(state.socket);
+  const busy = live || state.uploading;
+  const hasFile = Boolean(el.audioFile.files?.length);
+
+  el.refreshButton.disabled = state.uploading;
+  el.startButton.disabled = busy;
+  el.stopButton.disabled = !live;
+  el.sourceSelect.disabled = busy;
+  el.micDevice.disabled = busy;
+  el.systemDevice.disabled = busy;
+  el.cleanupToggle.disabled = busy;
+  el.audioFile.disabled = busy;
+  el.transcribeFileButton.disabled = busy || !hasFile;
 }
 
 function option(device) {
@@ -69,6 +88,7 @@ async function refresh() {
   );
   if (devices.error) parts.push(`خطای صدا: ${devices.error}`);
   setStatus(parts.join(" · "));
+  setControlState();
 }
 
 function appendSegment(target, segment) {
@@ -158,12 +178,16 @@ function resetSessionOutput() {
   setSessionActionState();
 }
 
-function start() {
+function resetTranscriptionOutput() {
   state.rawSegments = [];
   state.cleanSegments = [];
   el.rawOutput.replaceChildren();
   el.cleanOutput.replaceChildren();
   resetSessionOutput();
+}
+
+function start() {
+  resetTranscriptionOutput();
 
   const params = new URLSearchParams({
     source: el.sourceSelect.value,
@@ -176,10 +200,10 @@ function start() {
 
   const protocol = window.location.protocol === "https:" ? "wss" : "ws";
   state.socket = new WebSocket(`${protocol}://${window.location.host}/ws/transcribe?${params}`);
+  setControlState();
 
   state.socket.addEventListener("open", () => {
-    el.startButton.disabled = true;
-    el.stopButton.disabled = false;
+    setControlState();
     setStatus("ضبط شروع شد. اولین خروجی بعد از چند ثانیه می‌آید.");
   });
 
@@ -213,9 +237,8 @@ function start() {
   });
 
   state.socket.addEventListener("close", () => {
-    el.startButton.disabled = false;
-    el.stopButton.disabled = true;
     state.socket = null;
+    setControlState();
   });
 }
 
@@ -225,6 +248,73 @@ function stop() {
   renderSessionOutput();
   state.socket.send(JSON.stringify({ action: "stop" }));
   state.socket.close();
+}
+
+function renderFileSegments(rawSegments, cleanSegments) {
+  state.rawSegments = [];
+  state.cleanSegments = [];
+  el.rawOutput.replaceChildren();
+  el.cleanOutput.replaceChildren();
+
+  for (const segment of rawSegments || []) {
+    state.rawSegments[segment.index] = segment;
+    appendSegment(el.rawOutput, segment);
+  }
+  for (const segment of cleanSegments || []) {
+    state.cleanSegments[segment.index] = segment;
+    appendSegment(el.cleanOutput, segment);
+  }
+
+  state.stopped = true;
+  renderSessionOutput();
+}
+
+async function transcribeSelectedFile() {
+  if (state.socket) {
+    setStatus("برای ترنسکریپت فایل، اول ضبط زنده را متوقف کنید.");
+    return;
+  }
+
+  const file = el.audioFile.files?.[0];
+  if (!file) {
+    setStatus("اول یک فایل صوتی انتخاب کنید.");
+    return;
+  }
+
+  resetTranscriptionOutput();
+  state.uploading = true;
+  setControlState();
+  setStatus("در حال آپلود و ترنسکریپت فایل صوتی با Whisper...");
+
+  const params = new URLSearchParams({
+    cleanup: el.cleanupToggle.checked ? "true" : "false",
+    filename: file.name,
+  });
+
+  try {
+    const response = await fetch(`/api/transcribe-file?${params}`, {
+      method: "POST",
+      headers: { "Content-Type": file.type || "application/octet-stream" },
+      body: file,
+    });
+    const data = await response.json().catch(() => ({}));
+    if (!response.ok) {
+      throw new Error(data.detail || "ترنسکریپت فایل انجام نشد.");
+    }
+
+    renderFileSegments(data.rawSegments, data.cleanSegments);
+    const count = state.rawSegments.filter(Boolean).length;
+    setStatus(
+      count
+        ? `ترنسکریپت فایل آماده شد: ${count} بخش.`
+        : "فایل پردازش شد، اما متن قابل استفاده‌ای تشخیص داده نشد.",
+    );
+  } catch (error) {
+    setStatus(`خطا در ترنسکریپت فایل: ${error.message}`);
+  } finally {
+    state.uploading = false;
+    setControlState();
+  }
 }
 
 function collectText(kind) {
@@ -344,5 +434,8 @@ document.addEventListener("click", async (event) => {
 el.refreshButton.addEventListener("click", refresh);
 el.startButton.addEventListener("click", start);
 el.stopButton.addEventListener("click", stop);
+el.audioFile.addEventListener("change", setControlState);
+el.transcribeFileButton.addEventListener("click", transcribeSelectedFile);
 
 refresh().catch((error) => setStatus(`خطا در بررسی وضعیت: ${error.message}`));
+setControlState();

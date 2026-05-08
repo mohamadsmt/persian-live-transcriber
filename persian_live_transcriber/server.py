@@ -3,18 +3,21 @@ from __future__ import annotations
 import asyncio
 import importlib.util
 import shutil
+import subprocess
 import tempfile
 import time
+import wave
 from pathlib import Path
 from typing import Any
+from urllib.parse import unquote
 
 import numpy as np
-from fastapi import FastAPI, HTTPException, Query, WebSocket, WebSocketDisconnect
+from fastapi import FastAPI, HTTPException, Query, Request, WebSocket, WebSocketDisconnect
 from fastapi.responses import HTMLResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
-from .asr import DEFAULT_MODEL, WhisperASR, mlx_whisper_available
+from .asr import DEFAULT_MODEL, TranscriptResult, WhisperASR, mlx_whisper_available
 from .audio import (
     DEFAULT_CHUNK_SECONDS,
     TARGET_SAMPLE_RATE,
@@ -36,6 +39,9 @@ END_SILENCE_SECONDS = 1.0
 MIN_SEGMENT_SECONDS = 0.9
 CLEANUP_TIMEOUT_SECONDS = 20.0
 SUMMARY_TIMEOUT_SECONDS = 120.0
+MAX_UPLOAD_BYTES = 500 * 1024 * 1024
+FFMPEG_TIMEOUT_SECONDS = 600.0
+WHISPER_SEGMENT_FRAMES_PER_SECOND = 100.0
 COMMON_SILENCE_HALLUCINATIONS = {
     "موسیقی",
     "موسیقی در اینجا",
@@ -135,6 +141,199 @@ async def summarize_session(request: SummaryRequest) -> SummaryResponse:
         raise HTTPException(status_code=503, detail="خلاصه‌سازی Ollama خروجی خالی برگرداند.")
 
     return SummaryResponse(summary=summary, model=DEFAULT_OLLAMA_MODEL)
+
+
+def _safe_filename(filename: str | None) -> str | None:
+    if not filename:
+        return None
+    decoded = unquote(filename)
+    cleaned = Path(decoded).name.strip()
+    return cleaned or None
+
+
+async def _save_uploaded_audio(request: Request, destination: Path) -> int:
+    total = 0
+    with destination.open("wb") as file:
+        async for chunk in request.stream():
+            if not chunk:
+                continue
+            total += len(chunk)
+            if total > MAX_UPLOAD_BYTES:
+                raise HTTPException(status_code=413, detail="فایل صوتی بزرگ‌تر از حد مجاز است.")
+            file.write(chunk)
+
+    if total <= 0:
+        raise HTTPException(status_code=400, detail="فایل صوتی خالی است.")
+    return total
+
+
+def _convert_audio_to_wav(input_path: Path, output_path: Path) -> None:
+    ffmpeg = shutil.which("ffmpeg")
+    if not ffmpeg:
+        raise HTTPException(status_code=503, detail="ffmpeg روی سیستم پیدا نشد.")
+
+    command = [
+        ffmpeg,
+        "-y",
+        "-hide_banner",
+        "-loglevel",
+        "error",
+        "-i",
+        str(input_path),
+        "-vn",
+        "-ac",
+        "1",
+        "-ar",
+        str(TARGET_SAMPLE_RATE),
+        "-f",
+        "wav",
+        str(output_path),
+    ]
+    try:
+        subprocess.run(
+            command,
+            check=True,
+            capture_output=True,
+            text=True,
+            timeout=FFMPEG_TIMEOUT_SECONDS,
+        )
+    except subprocess.TimeoutExpired as exc:
+        raise HTTPException(status_code=504, detail="تبدیل فایل صوتی بیش از حد طول کشید.") from exc
+    except subprocess.CalledProcessError as exc:
+        detail = (exc.stderr or exc.stdout or "فرمت فایل صوتی قابل تبدیل نیست.").strip()
+        raise HTTPException(
+            status_code=422,
+            detail=f"تبدیل فایل صوتی با ffmpeg انجام نشد: {detail}",
+        ) from exc
+
+
+def _wav_duration_seconds(path: Path) -> float:
+    try:
+        with wave.open(str(path), "rb") as wav_file:
+            frame_rate = wav_file.getframerate()
+            if frame_rate <= 0:
+                return 0.0
+            return wav_file.getnframes() / float(frame_rate)
+    except wave.Error:
+        return 0.0
+
+
+def _coerce_seconds(value: Any, fallback: float) -> float:
+    try:
+        return max(0.0, float(value))
+    except (TypeError, ValueError):
+        return max(0.0, fallback)
+
+
+def _segment_value(segment: Any, key: str) -> Any:
+    if isinstance(segment, dict):
+        return segment.get(key)
+    if isinstance(segment, (list, tuple)):
+        positions = {"start": 0, "end": 1, "text": 2}
+        index = positions.get(key)
+        if index is not None and len(segment) > index:
+            return segment[index]
+    return None
+
+
+def _coerce_segment_seconds(segment: Any, key: str, fallback: float) -> float:
+    value = _segment_value(segment, key)
+    if value is None:
+        return max(0.0, fallback)
+    seconds = _coerce_seconds(value, fallback)
+    if isinstance(segment, (list, tuple)):
+        return seconds / WHISPER_SEGMENT_FRAMES_PER_SECOND
+    return seconds
+
+
+def _segment_payload(
+    index: int,
+    start: float,
+    end: float,
+    text: str,
+    language: str,
+) -> dict[str, Any]:
+    end = max(start, end)
+    return {
+        "index": index,
+        "start": start,
+        "end": end,
+        "startLabel": format_timestamp(start),
+        "endLabel": format_timestamp(end),
+        "text": text,
+        "language": language,
+    }
+
+
+def _transcript_segments(result: TranscriptResult, duration: float) -> list[dict[str, Any]]:
+    language = result.language or "fa"
+    normalized: list[dict[str, Any]] = []
+    last_end = 0.0
+
+    for segment in result.segments or []:
+        text = str(_segment_value(segment, "text") or "").strip()
+        if not text or text in COMMON_SILENCE_HALLUCINATIONS:
+            continue
+        start = _coerce_segment_seconds(segment, "start", last_end)
+        end = _coerce_segment_seconds(segment, "end", max(start, last_end))
+        payload = _segment_payload(len(normalized), start, end, text, language)
+        normalized.append(payload)
+        last_end = payload["end"]
+
+    if normalized:
+        return normalized
+
+    text = result.text.strip()
+    if not text or text in COMMON_SILENCE_HALLUCINATIONS:
+        return []
+    return [_segment_payload(0, 0.0, max(0.0, duration), text, language)]
+
+
+async def _clean_file_segments(
+    segments: list[dict[str, Any]],
+    cleaner: OllamaCleaner,
+) -> list[dict[str, Any]]:
+    cleaned_segments = []
+    for segment in segments:
+        text = str(segment.get("text") or "")
+        try:
+            cleaned = await asyncio.wait_for(
+                asyncio.to_thread(cleaner.clean, text, CLEANUP_TIMEOUT_SECONDS),
+                timeout=CLEANUP_TIMEOUT_SECONDS + 5.0,
+            )
+            cleaned_segments.append({**segment, "text": cleaned})
+        except Exception:  # noqa: BLE001
+            cleaned_segments.append({**segment, "cleanupFailed": True})
+    return cleaned_segments
+
+
+@app.post("/api/transcribe-file")
+async def transcribe_file_upload(
+    request: Request,
+    cleanup: bool = Query(default=True),
+    filename: str | None = Query(default=None),
+) -> dict[str, Any]:
+    with tempfile.TemporaryDirectory(prefix="persian-transcript-upload-") as tmpdir:
+        upload_path = Path(tmpdir) / "upload.audio"
+        wav_path = Path(tmpdir) / "upload.wav"
+        byte_count = await _save_uploaded_audio(request, upload_path)
+        await asyncio.to_thread(_convert_audio_to_wav, upload_path, wav_path)
+
+        asr = WhisperASR()
+        result = await asyncio.to_thread(asr.transcribe_file, wav_path)
+        raw_segments = _transcript_segments(result, _wav_duration_seconds(wav_path))
+        clean_segments = []
+        if cleanup and raw_segments:
+            clean_segments = await _clean_file_segments(raw_segments, OllamaCleaner())
+
+    return {
+        "filename": _safe_filename(filename),
+        "byteCount": byte_count,
+        "model": DEFAULT_MODEL,
+        "language": result.language or "fa",
+        "rawSegments": raw_segments,
+        "cleanSegments": clean_segments,
+    }
 
 
 async def _send(websocket: WebSocket, event: str, **payload: Any) -> None:
