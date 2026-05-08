@@ -1,0 +1,75 @@
+<!doctype html>
+<html lang="fa" dir="rtl">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>ترنسکریپت زنده فارسی</title>
+    <link rel="stylesheet" href="/static/styles.css" />
+  </head>
+  <body>
+    <main class="app-shell">
+      <section class="workspace" aria-label="ترنسکریپت زنده">
+        <header class="topbar">
+          <div>
+            <h1>ترنسکریپت زنده فارسی</h1>
+            <p id="statusLine">در حال بررسی وضعیت سیستم...</p>
+          </div>
+          <div class="actions">
+            <button id="refreshButton" type="button" class="ghost">به‌روزرسانی</button>
+            <button id="startButton" type="button" class="primary">شروع</button>
+            <button id="stopButton" type="button" class="danger" disabled>توقف</button>
+          </div>
+        </header>
+
+        <section class="control-grid" aria-label="تنظیمات">
+          <label>
+            منبع صدا
+            <select id="sourceSelect">
+              <option value="mic">میکروفون</option>
+              <option value="system">صدای سیستم</option>
+              <option value="both">میکروفون + صدای سیستم</option>
+            </select>
+          </label>
+          <label>
+            میکروفون
+            <select id="micDevice"></select>
+          </label>
+          <label>
+            ورودی صدای سیستم
+            <select id="systemDevice"></select>
+          </label>
+          <label class="toggle">
+            <input id="cleanupToggle" type="checkbox" checked />
+            <span>پاک‌سازی متن با Ollama</span>
+          </label>
+        </section>
+
+        <section class="panels">
+          <article class="panel">
+            <div class="panel-head">
+              <h2>متن خام Whisper</h2>
+              <button type="button" data-copy="rawOutput">کپی</button>
+            </div>
+            <div id="rawOutput" class="transcript" aria-live="polite"></div>
+          </article>
+          <article class="panel">
+            <div class="panel-head">
+              <h2>نسخه پاک‌سازی‌شده</h2>
+              <button type="button" data-copy="cleanOutput">کپی</button>
+            </div>
+            <div id="cleanOutput" class="transcript clean" aria-live="polite"></div>
+          </article>
+        </section>
+
+        <footer class="exportbar">
+          <button type="button" data-export="txt">خروجی TXT</button>
+          <button type="button" data-export="json">خروجی JSON</button>
+          <button type="button" data-export="srt">خروجی SRT</button>
+          <span id="runtimeNote">مدل پیش‌فرض: Whisper large-v3، زبان: fa</span>
+        </footer>
+      </section>
+    </main>
+    <script src="/static/app.js" type="module"></script>
+  </body>
+</html>
+

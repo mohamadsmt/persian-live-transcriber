@@ -1,0 +1,8 @@
+.DS_Store
+.venv/
+.uv-cache/
+.uv-tools/
+__pycache__/
+.pytest_cache/
+*.pyc
+
