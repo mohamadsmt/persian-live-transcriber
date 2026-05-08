@@ -29,6 +29,13 @@ from .ollama_cleaner import DEFAULT_OLLAMA_MODEL, OllamaCleaner
 
 BASE_DIR = Path(__file__).resolve().parent.parent
 STATIC_DIR = BASE_DIR / "static"
+COMMON_SILENCE_HALLUCINATIONS = {
+    "موسیقی",
+    "موسیقی در اینجا",
+    "موسیقی.",
+    "ممنون",
+    "ممنون.",
+}
 
 app = FastAPI(title="Persian Live Transcriber", version="0.1.0")
 app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")
@@ -91,7 +98,10 @@ async def devices() -> dict[str, Any]:
 
 
 async def _send(websocket: WebSocket, event: str, **payload: Any) -> None:
-    await websocket.send_json({"event": event, **payload})
+    try:
+        await websocket.send_json({"event": event, **payload})
+    except (RuntimeError, WebSocketDisconnect):
+        return
 
 
 async def _watch_stop(websocket: WebSocket, stop_event: asyncio.Event) -> None:
@@ -130,7 +140,7 @@ async def transcribe_ws(
         await _send(
             websocket,
             "status",
-            message="recording",
+            message="در حال ضبط؛ اولین قطعه بعد از چند ثانیه پردازش می‌شود.",
             source=source,
             chunkSeconds=chunk_seconds,
             model=DEFAULT_MODEL,
@@ -155,8 +165,21 @@ async def transcribe_ws(
                 index=segment_index,
                 start=max(0.0, start_time),
                 end=end_time,
-                text="در حال ترنسکریپت...",
+                startLabel=format_timestamp(max(0.0, start_time)),
+                endLabel=format_timestamp(end_time),
+                text="در حال آماده‌سازی ترنسکریپت...",
             )
+            if not asr.is_loaded:
+                await _send(
+                    websocket,
+                    "status",
+                    message=(
+                        "در حال آماده‌سازی مدل Whisper large-v3. اجرای اول ممکن است چند دقیقه طول "
+                        "بکشد چون فایل مدل حدود ۳ گیگابایت دانلود می‌شود."
+                    ),
+                )
+            else:
+                await _send(websocket, "status", message="در حال ترنسکریپت قطعه صوتی...")
 
             with tempfile.TemporaryDirectory(prefix="persian-transcript-") as tmpdir:
                 wav_path = Path(tmpdir) / f"chunk-{segment_index}.wav"
@@ -164,6 +187,11 @@ async def transcribe_ws(
                 result = await asyncio.to_thread(asr.transcribe_file, wav_path)
 
             text = result.text.strip()
+            if text in COMMON_SILENCE_HALLUCINATIONS:
+                await _send(websocket, "status", message="صدای گفتار کافی تشخیص داده نشد.")
+                segment_index += 1
+                continue
+
             if text:
                 payload = {
                     "index": segment_index,
@@ -178,6 +206,7 @@ async def transcribe_ws(
 
                 if cleanup:
                     try:
+                        await _send(websocket, "status", message="در حال پاک‌سازی متن با Ollama...")
                         cleaned = await asyncio.to_thread(cleaner.clean, text)
                         await _send(websocket, "cleaned", **payload, text=cleaned)
                     except Exception as exc:  # noqa: BLE001
@@ -185,7 +214,7 @@ async def transcribe_ws(
 
             segment_index += 1
 
-        await _send(websocket, "status", message="stopped")
+        await _send(websocket, "status", message="متوقف شد.")
 
     except WebSocketDisconnect:
         return

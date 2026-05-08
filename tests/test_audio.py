@@ -3,6 +3,7 @@ from pathlib import Path
 import numpy as np
 
 from persian_live_transcriber.audio import (
+    audio_rms,
     format_timestamp,
     mix_audio_tracks,
     resample_linear,
@@ -25,6 +26,11 @@ def test_mix_audio_tracks_pads_and_averages() -> None:
     assert np.allclose(result, np.array([0.0, 0.5, 0.5], dtype=np.float32))
 
 
+def test_audio_rms() -> None:
+    samples = np.array([1.0, -1.0, 1.0, -1.0], dtype=np.float32)
+    assert audio_rms(samples) == 1.0
+
+
 def test_split_chunks_uses_sample_rate() -> None:
     samples = np.arange(10, dtype=np.float32)
     chunks = split_chunks(samples, sample_rate=10, chunk_seconds=0.3)
@@ -39,4 +45,3 @@ def test_write_wav(tmp_path: Path) -> None:
     path = tmp_path / "sample.wav"
     write_wav(path, np.zeros(160, dtype=np.float32), 16_000)
     assert path.stat().st_size > 44
-

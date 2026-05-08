@@ -46,6 +46,10 @@ class WhisperASR:
             )
         return self._model
 
+    @property
+    def is_loaded(self) -> bool:
+        return self._model is not None
+
     def transcribe_file(self, audio_path: Path) -> TranscriptResult:
         model = self._load()
         try:

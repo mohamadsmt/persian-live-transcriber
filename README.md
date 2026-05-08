@@ -37,9 +37,14 @@ brew install --cask blackhole-2ch
 
 اولین اجرای ترنسکریپت ممکن است مدل Whisper را دانلود کند.
 
+برای دانلود/آماده‌سازی مدل قبل از استفاده از UI:
+
+```bash
+HF_HUB_DISABLE_XET=1 uv run --python 3.11 python scripts/preload_model.py
+```
+
 ## تست
 
 ```bash
 uv run --python 3.11 --extra test pytest
 ```
-

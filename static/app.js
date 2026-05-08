@@ -68,7 +68,11 @@ function appendSegment(target, segment) {
   const item = document.createElement("span");
   item.className = "segment";
   item.dataset.index = String(segment.index);
-  item.innerHTML = `<span class="stamp">${segment.startLabel} → ${segment.endLabel}</span>${escapeHtml(segment.text)}`;
+  const stamp =
+    segment.startLabel && segment.endLabel
+      ? `<span class="stamp">${segment.startLabel} → ${segment.endLabel}</span>`
+      : "";
+  item.innerHTML = `${stamp}${escapeHtml(segment.text)}`;
 
   const existing = target.querySelector(`[data-index="${segment.index}"]`);
   if (existing) {
@@ -118,7 +122,10 @@ function start() {
   state.socket.addEventListener("message", (event) => {
     const data = JSON.parse(event.data);
     if (data.event === "status") setStatus(data.message);
-    if (data.event === "partial") setStatus("در حال ترنسکریپت قطعه فعلی...");
+    if (data.event === "partial") {
+      setStatus(data.text || "در حال ترنسکریپت قطعه فعلی...");
+      appendSegment(el.rawOutput, data);
+    }
     if (data.event === "final") {
       state.rawSegments[data.index] = data;
       appendSegment(el.rawOutput, data);

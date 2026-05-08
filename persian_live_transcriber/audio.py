@@ -10,7 +10,7 @@ from typing import Iterable, Literal
 import numpy as np
 
 TARGET_SAMPLE_RATE = 16_000
-DEFAULT_CHUNK_SECONDS = 8.0
+DEFAULT_CHUNK_SECONDS = 4.0
 
 
 AudioSource = Literal["mic", "system", "both"]
@@ -110,6 +110,13 @@ def mix_audio_tracks(tracks: Iterable[np.ndarray]) -> np.ndarray:
 
     mixed = np.mean(np.vstack(padded), axis=0, dtype=np.float32)
     return np.clip(mixed, -1.0, 1.0).astype(np.float32)
+
+
+def audio_rms(samples: np.ndarray) -> float:
+    mono = to_mono(samples)
+    if mono.size == 0:
+        return 0.0
+    return float(np.sqrt(np.mean(np.square(mono, dtype=np.float32))))
 
 
 def split_chunks(samples: np.ndarray, sample_rate: int, chunk_seconds: float) -> list[np.ndarray]:
@@ -224,4 +231,3 @@ class CombinedRecorder:
         for recorder in self.recorders:
             recorder.stop()
         self.recorders = []
-

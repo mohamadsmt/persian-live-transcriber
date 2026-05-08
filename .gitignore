@@ -2,7 +2,8 @@
 .venv/
 .uv-cache/
 .uv-tools/
+.hf-cache/
+mlx_models/
 __pycache__/
 .pytest_cache/
 *.pyc
-
