@@ -21,6 +21,25 @@ def build_cleanup_prompt(text: str) -> str:
     )
 
 
+def build_summary_prompt(text: str) -> str:
+    return (
+        "تو خلاصه‌نویس دقیق یک سشن ترنسکریپت فارسی هستی.\n"
+        "فقط بر اساس متن داده‌شده بنویس؛ چیزی اختراع نکن، نتیجه‌گیری اضافه نکن، و معنی را تغییر نده.\n"
+        "اگر تصمیم، عدد، نام، تاریخ، یا کار بعدی در متن آمده، همان را دقیق حفظ کن.\n"
+        "خروجی فقط فارسی و با Markdown ساده باشد.\n"
+        "خلاصه مفصل بساز و این بخش‌ها را داشته باشد:\n"
+        "## خلاصه کلی\n"
+        "چند پاراگراف فشرده از موضوع و روند صحبت؛ اگر متن کوتاه است، حداقل یک جمله بنویس.\n\n"
+        "## نکات اصلی\n"
+        "- نکته‌های مهم را به ترتیب اهمیت بنویس؛ اگر نکته‌ای وجود ندارد بنویس: موردی ثبت نشده است.\n\n"
+        "## تصمیم‌ها\n"
+        "- اگر تصمیمی وجود ندارد بنویس: موردی ثبت نشده است.\n\n"
+        "## کارهای بعدی\n"
+        "- اگر کار بعدی وجود ندارد بنویس: موردی ثبت نشده است.\n\n"
+        f"متن سشن:\n{text.strip()}"
+    )
+
+
 @dataclass(frozen=True)
 class OllamaStatus:
     available: bool
@@ -43,14 +62,10 @@ class OllamaCleaner:
         names = {item.get("name") for item in data.get("models", [])}
         return OllamaStatus(True, self.model in names)
 
-    def clean(self, text: str, timeout: float = 90.0) -> str:
-        raw = text.strip()
-        if not raw:
-            return ""
-
+    def _generate(self, prompt: str, timeout: float) -> str:
         payload = {
             "model": self.model,
-            "prompt": build_cleanup_prompt(raw),
+            "prompt": prompt,
             "stream": False,
             "options": {"temperature": 0.0},
         }
@@ -63,6 +78,19 @@ class OllamaCleaner:
         with urllib.request.urlopen(request, timeout=timeout) as response:
             data = json.loads(response.read().decode("utf-8"))
 
-        cleaned = str(data.get("response") or "").strip()
+        return str(data.get("response") or "").strip()
+
+    def clean(self, text: str, timeout: float = 90.0) -> str:
+        raw = text.strip()
+        if not raw:
+            return ""
+
+        cleaned = self._generate(build_cleanup_prompt(raw), timeout)
         return cleaned or raw
 
+    def summarize(self, text: str, timeout: float = 120.0) -> str:
+        raw = text.strip()
+        if not raw:
+            return ""
+
+        return self._generate(build_summary_prompt(raw), timeout)

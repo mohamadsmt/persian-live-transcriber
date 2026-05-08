@@ -2,6 +2,9 @@ const state = {
   socket: null,
   rawSegments: [],
   cleanSegments: [],
+  stopped: false,
+  summarizing: false,
+  summaryText: "",
 };
 
 const el = {
@@ -15,6 +18,10 @@ const el = {
   cleanupToggle: document.querySelector("#cleanupToggle"),
   rawOutput: document.querySelector("#rawOutput"),
   cleanOutput: document.querySelector("#cleanOutput"),
+  sessionOutput: document.querySelector("#sessionOutput"),
+  unifiedOutput: document.querySelector("#unifiedOutput"),
+  summaryOutput: document.querySelector("#summaryOutput"),
+  summarizeButton: document.querySelector("#summarizeButton"),
 };
 
 function setStatus(message) {
@@ -95,11 +102,68 @@ function selectedValue(select) {
   return select.value ? Number(select.value) : null;
 }
 
+function normalizeSegmentText(value) {
+  return String(value || "").replace(/\s+/g, " ").trim();
+}
+
+function sessionSegments() {
+  const length = Math.max(state.rawSegments.length, state.cleanSegments.length);
+  const segments = [];
+
+  for (let index = 0; index < length; index += 1) {
+    const segment = state.cleanSegments[index] || state.rawSegments[index];
+    const text = normalizeSegmentText(segment?.text);
+    if (text) segments.push({ ...segment, index, text });
+  }
+
+  return segments;
+}
+
+function unifiedSessionText() {
+  return sessionSegments().map((segment) => segment.text).join("\n\n");
+}
+
+function setSessionActionState() {
+  const unifiedText = unifiedSessionText();
+  const hasUnifiedText = Boolean(unifiedText);
+  const hasSummary = Boolean(state.summaryText.trim());
+  const canUseSessionOutput = state.stopped && hasUnifiedText;
+
+  el.sessionOutput.hidden = !canUseSessionOutput;
+  document
+    .querySelectorAll('[data-session-copy="unified"], [data-session-download="unified"]')
+    .forEach((button) => {
+      button.disabled = !canUseSessionOutput;
+    });
+
+  el.summarizeButton.disabled = !canUseSessionOutput || state.summarizing;
+  document
+    .querySelectorAll('[data-session-copy="summary"], [data-session-download="summary"]')
+    .forEach((button) => {
+      button.disabled = !canUseSessionOutput || !hasSummary || state.summarizing;
+    });
+}
+
+function renderSessionOutput() {
+  el.unifiedOutput.textContent = unifiedSessionText();
+  setSessionActionState();
+}
+
+function resetSessionOutput() {
+  state.stopped = false;
+  state.summarizing = false;
+  state.summaryText = "";
+  el.unifiedOutput.textContent = "";
+  el.summaryOutput.textContent = "";
+  setSessionActionState();
+}
+
 function start() {
   state.rawSegments = [];
   state.cleanSegments = [];
   el.rawOutput.replaceChildren();
   el.cleanOutput.replaceChildren();
+  resetSessionOutput();
 
   const params = new URLSearchParams({
     source: el.sourceSelect.value,
@@ -129,6 +193,7 @@ function start() {
     if (data.event === "final") {
       state.rawSegments[data.index] = data;
       appendSegment(el.rawOutput, data);
+      renderSessionOutput();
       setStatus("متن خام دریافت شد؛ ضبط ادامه دارد.");
     }
     if (data.event === "cleaning") {
@@ -137,6 +202,7 @@ function start() {
     if (data.event === "cleaned") {
       state.cleanSegments[data.index] = data;
       appendSegment(el.cleanOutput, data);
+      renderSessionOutput();
       if (data.cleanupPending) {
         setStatus("متن خام در پنل پاک‌سازی‌شده قرار گرفت؛ Ollama در پس‌زمینه در حال اصلاح است.");
       } else {
@@ -155,6 +221,8 @@ function start() {
 
 function stop() {
   if (!state.socket) return;
+  state.stopped = true;
+  renderSessionOutput();
   state.socket.send(JSON.stringify({ action: "stop" }));
   state.socket.close();
 }
@@ -188,6 +256,43 @@ function download(name, type, content) {
   URL.revokeObjectURL(url);
 }
 
+async function summarizeSession() {
+  const text = unifiedSessionText();
+  if (!state.stopped || !text) {
+    setStatus("برای ساخت خلاصه، اول ضبط را متوقف کنید و مطمئن شوید متن ثبت شده است.");
+    return;
+  }
+
+  state.summarizing = true;
+  state.summaryText = "";
+  el.summaryOutput.textContent = "در حال ساخت خلاصه مفصل با Ollama...";
+  setSessionActionState();
+  setStatus("در حال ساخت خلاصه مفصل با Ollama...");
+
+  try {
+    const response = await fetch("/api/summarize", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ text }),
+    });
+    const data = await response.json().catch(() => ({}));
+    if (!response.ok) {
+      throw new Error(data.detail || "خلاصه‌سازی انجام نشد.");
+    }
+
+    state.summaryText = String(data.summary || "").trim();
+    el.summaryOutput.textContent = state.summaryText || "خلاصه‌ای تولید نشد.";
+    setStatus(state.summaryText ? "خلاصه سشن آماده شد." : "خلاصه‌سازی خروجی خالی برگرداند.");
+  } catch (error) {
+    state.summaryText = "";
+    el.summaryOutput.textContent = "";
+    setStatus(`خطا در خلاصه‌سازی: ${error.message}`);
+  } finally {
+    state.summarizing = false;
+    setSessionActionState();
+  }
+}
+
 document.addEventListener("click", async (event) => {
   const target = event.target;
   if (!(target instanceof HTMLElement)) return;
@@ -197,6 +302,34 @@ document.addEventListener("click", async (event) => {
     const text = document.querySelector(`#${copyTarget}`)?.innerText || "";
     await navigator.clipboard.writeText(text);
     setStatus("متن کپی شد.");
+  }
+
+  const sessionCopy = target.dataset.sessionCopy;
+  if (sessionCopy) {
+    const text = sessionCopy === "summary" ? state.summaryText : unifiedSessionText();
+    if (!text.trim()) {
+      setStatus("متنی برای کپی وجود ندارد.");
+      return;
+    }
+    await navigator.clipboard.writeText(text);
+    setStatus(sessionCopy === "summary" ? "خلاصه کپی شد." : "متن یکپارچه کپی شد.");
+  }
+
+  const sessionDownload = target.dataset.sessionDownload;
+  if (sessionDownload) {
+    const text = sessionDownload === "summary" ? state.summaryText : unifiedSessionText();
+    if (!text.trim()) {
+      setStatus("متنی برای دانلود وجود ندارد.");
+      return;
+    }
+    const fileName =
+      sessionDownload === "summary" ? "transcript-fa-summary.txt" : "transcript-fa-unified.txt";
+    download(fileName, "text/plain", text);
+    setStatus(sessionDownload === "summary" ? "خلاصه دانلود شد." : "متن یکپارچه دانلود شد.");
+  }
+
+  if (target.id === "summarizeButton") {
+    await summarizeSession();
   }
 
   const exportType = target.dataset.export;

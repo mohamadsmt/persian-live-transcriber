@@ -50,15 +50,63 @@
               <h2>متن خام Whisper</h2>
               <button type="button" data-copy="rawOutput">کپی</button>
             </div>
-            <div id="rawOutput" class="transcript" aria-live="polite"></div>
+            <div
+              id="rawOutput"
+              class="transcript"
+              aria-live="polite"
+              data-empty="هنوز متنی ثبت نشده است."
+            ></div>
           </article>
           <article class="panel">
             <div class="panel-head">
               <h2>نسخه پاک‌سازی‌شده</h2>
               <button type="button" data-copy="cleanOutput">کپی</button>
             </div>
-            <div id="cleanOutput" class="transcript clean" aria-live="polite"></div>
+            <div
+              id="cleanOutput"
+              class="transcript clean"
+              aria-live="polite"
+              data-empty="هنوز متنی ثبت نشده است."
+            ></div>
           </article>
+        </section>
+
+        <section id="sessionOutput" class="session-output" aria-label="خروجی سشن" hidden>
+          <div class="session-head">
+            <h2>خروجی سشن</h2>
+            <div class="session-actions">
+              <button type="button" data-session-copy="unified" disabled>کپی متن یکپارچه</button>
+              <button type="button" data-session-download="unified" disabled>دانلود متن TXT</button>
+            </div>
+          </div>
+          <div class="session-grid">
+            <section class="session-block" aria-label="متن یکپارچه">
+              <div class="session-block-head">
+                <h3>متن یکپارچه</h3>
+              </div>
+              <div
+                id="unifiedOutput"
+                class="transcript session-text"
+                data-empty="بعد از توقف ضبط، متن یکپارچه اینجا نمایش داده می‌شود."
+              ></div>
+            </section>
+            <section class="session-block" aria-label="خلاصه سشن">
+              <div class="session-block-head">
+                <h3>خلاصه سشن</h3>
+                <div class="session-actions">
+                  <button id="summarizeButton" type="button" disabled>ساخت خلاصه مفصل</button>
+                  <button type="button" data-session-copy="summary" disabled>کپی خلاصه</button>
+                  <button type="button" data-session-download="summary" disabled>دانلود خلاصه TXT</button>
+                </div>
+              </div>
+              <div
+                id="summaryOutput"
+                class="transcript session-text"
+                aria-live="polite"
+                data-empty="خلاصه فقط بعد از درخواست شما ساخته می‌شود."
+              ></div>
+            </section>
+          </div>
         </section>
 
         <footer class="exportbar">
@@ -69,6 +117,6 @@
         </footer>
       </section>
     </main>
-    <script src="/static/app.js?v=20260508-cleanup-fix" type="module"></script>
+    <script src="/static/app.js?v=20260508-session-output" type="module"></script>
   </body>
 </html>

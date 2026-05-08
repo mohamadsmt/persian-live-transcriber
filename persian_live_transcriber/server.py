@@ -9,9 +9,10 @@ from pathlib import Path
 from typing import Any
 
 import numpy as np
-from fastapi import FastAPI, Query, WebSocket, WebSocketDisconnect
+from fastapi import FastAPI, HTTPException, Query, WebSocket, WebSocketDisconnect
 from fastapi.responses import HTMLResponse
 from fastapi.staticfiles import StaticFiles
+from pydantic import BaseModel, Field
 
 from .asr import DEFAULT_MODEL, WhisperASR, mlx_whisper_available
 from .audio import (
@@ -34,6 +35,7 @@ SPEECH_RMS_THRESHOLD = 0.006
 END_SILENCE_SECONDS = 1.0
 MIN_SEGMENT_SECONDS = 0.9
 CLEANUP_TIMEOUT_SECONDS = 20.0
+SUMMARY_TIMEOUT_SECONDS = 120.0
 COMMON_SILENCE_HALLUCINATIONS = {
     "موسیقی",
     "موسیقی در اینجا",
@@ -44,6 +46,15 @@ COMMON_SILENCE_HALLUCINATIONS = {
 
 app = FastAPI(title="Persian Live Transcriber", version="0.1.0")
 app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")
+
+
+class SummaryRequest(BaseModel):
+    text: str = Field(default="", max_length=200_000)
+
+
+class SummaryResponse(BaseModel):
+    summary: str
+    model: str
 
 
 @app.get("/", response_class=HTMLResponse)
@@ -100,6 +111,30 @@ async def devices() -> dict[str, Any]:
         return {"devices": items, "error": None}
     except Exception as exc:  # noqa: BLE001
         return {"devices": [], "error": str(exc)}
+
+
+@app.post("/api/summarize", response_model=SummaryResponse)
+async def summarize_session(request: SummaryRequest) -> SummaryResponse:
+    text = request.text.strip()
+    if not text:
+        raise HTTPException(status_code=400, detail="متنی برای خلاصه‌سازی وجود ندارد.")
+
+    cleaner = OllamaCleaner()
+    try:
+        summary = await asyncio.wait_for(
+            asyncio.to_thread(cleaner.summarize, text, SUMMARY_TIMEOUT_SECONDS),
+            timeout=SUMMARY_TIMEOUT_SECONDS + 5.0,
+        )
+    except Exception as exc:  # noqa: BLE001
+        raise HTTPException(
+            status_code=503,
+            detail=f"خلاصه‌سازی Ollama انجام نشد: {exc}",
+        ) from exc
+
+    if not summary:
+        raise HTTPException(status_code=503, detail="خلاصه‌سازی Ollama خروجی خالی برگرداند.")
+
+    return SummaryResponse(summary=summary, model=DEFAULT_OLLAMA_MODEL)
 
 
 async def _send(websocket: WebSocket, event: str, **payload: Any) -> None:

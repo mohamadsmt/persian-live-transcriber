@@ -24,6 +24,43 @@ def test_index_serves_ui() -> None:
     assert "ترنسکریپت زنده فارسی" in response.text
 
 
+def test_summarize_endpoint_rejects_empty_text() -> None:
+    client = TestClient(app)
+    response = client.post("/api/summarize", json={"text": "   "})
+    assert response.status_code == 400
+
+
+def test_summarize_endpoint_returns_ollama_summary(monkeypatch) -> None:
+    class FakeCleaner:
+        def summarize(self, text: str, timeout: float) -> str:
+            assert text == "متن کامل جلسه"
+            assert timeout > 0
+            return "## خلاصه کلی\nخلاصه مفصل جلسه"
+
+    monkeypatch.setattr("persian_live_transcriber.server.OllamaCleaner", lambda: FakeCleaner())
+
+    client = TestClient(app)
+    response = client.post("/api/summarize", json={"text": "متن کامل جلسه"})
+
+    assert response.status_code == 200
+    assert response.json()["summary"] == "## خلاصه کلی\nخلاصه مفصل جلسه"
+    assert response.json()["model"] == "gpt-oss:20b"
+
+
+def test_summarize_endpoint_reports_ollama_error(monkeypatch) -> None:
+    class FakeCleaner:
+        def summarize(self, text: str, timeout: float) -> str:
+            raise RuntimeError("ollama down")
+
+    monkeypatch.setattr("persian_live_transcriber.server.OllamaCleaner", lambda: FakeCleaner())
+
+    client = TestClient(app)
+    response = client.post("/api/summarize", json={"text": "متن کامل جلسه"})
+
+    assert response.status_code == 503
+    assert "خلاصه‌سازی Ollama انجام نشد" in response.json()["detail"]
+
+
 def test_asr_wrapper_passes_persian_language(tmp_path: Path) -> None:
     class FakeModel:
         def __init__(self) -> None:

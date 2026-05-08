@@ -12,6 +12,7 @@ The app runs a FastAPI server on localhost, serves a browser UI in Persian, tran
 - Persian language locked to `fa`.
 - Optional local text cleanup through Ollama using `gpt-oss:20b`.
 - Side-by-side raw and cleaned transcript panes.
+- Session output after stopping: unified plain text plus on-demand detailed session summary.
 - Copy controls and TXT, JSON, and SRT export.
 - Local-only default server bind at `127.0.0.1:8765`.
 
@@ -71,6 +72,8 @@ HF_HUB_DISABLE_XET=1 uv run --python 3.11 python scripts/preload_model.py
 
 Ollama cleanup is optional. The ASR model produces the raw transcript first. When cleanup is enabled and Ollama is available, the app sends each raw Persian segment to `gpt-oss:20b` with instructions to only fix spacing, obvious punctuation, and clear recognition mistakes without changing meaning.
 
+After you stop a session, the UI can also build a unified text output and request a detailed Persian summary of the whole session. The summary is generated only on demand and uses the same local Ollama endpoint.
+
 Expected Ollama endpoint:
 
 ```text
@@ -124,6 +127,7 @@ tests/
 - `GET /` serves the web UI.
 - `GET /api/status` reports runtime dependency, audio, ASR, BlackHole, and Ollama status.
 - `GET /api/devices` lists available input devices.
+- `POST /api/summarize` generates an on-demand detailed Persian summary for provided session text.
 - `WS /ws/transcribe` streams live transcription events.
 
 WebSocket query parameters:
