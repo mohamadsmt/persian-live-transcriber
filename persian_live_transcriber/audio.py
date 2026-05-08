@@ -10,7 +10,7 @@ from typing import Iterable, Literal
 import numpy as np
 
 TARGET_SAMPLE_RATE = 16_000
-DEFAULT_CHUNK_SECONDS = 4.0
+DEFAULT_CHUNK_SECONDS = 10.0
 
 
 AudioSource = Literal["mic", "system", "both"]

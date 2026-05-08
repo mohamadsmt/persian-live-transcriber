@@ -129,12 +129,19 @@ function start() {
     if (data.event === "final") {
       state.rawSegments[data.index] = data;
       appendSegment(el.rawOutput, data);
-      setStatus("متن خام دریافت شد.");
+      setStatus("متن خام دریافت شد؛ ضبط ادامه دارد.");
+    }
+    if (data.event === "cleaning") {
+      appendSegment(el.cleanOutput, data);
     }
     if (data.event === "cleaned") {
       state.cleanSegments[data.index] = data;
       appendSegment(el.cleanOutput, data);
-      setStatus("نسخه پاک‌سازی‌شده آماده شد.");
+      if (data.cleanupPending) {
+        setStatus("متن خام در پنل پاک‌سازی‌شده قرار گرفت؛ Ollama در پس‌زمینه در حال اصلاح است.");
+      } else {
+        setStatus(data.cleanupFailed ? "پاک‌سازی کامل نشد؛ متن خام نمایش داده شد." : "نسخه پاک‌سازی‌شده آماده شد.");
+      }
     }
     if (data.event === "error") setStatus(data.message);
   });
