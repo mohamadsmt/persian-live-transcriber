@@ -7,3 +7,5 @@ mlx_models/
 __pycache__/
 .pytest_cache/
 *.pyc
+.codex/
+script/build_and_run.sh
