@@ -127,16 +127,16 @@ async def _cleanup_and_send(
     raw_text: str,
     semaphore: asyncio.Semaphore,
 ) -> None:
-    await _send(websocket, "cleaned", **payload, text=raw_text, cleanupPending=True)
+    await _send(websocket, "cleaned", **{**payload, "text": raw_text}, cleanupPending=True)
     async with semaphore:
         try:
             cleaned = await asyncio.wait_for(
                 asyncio.to_thread(cleaner.clean, raw_text, CLEANUP_TIMEOUT_SECONDS),
                 timeout=CLEANUP_TIMEOUT_SECONDS + 5.0,
             )
-            await _send(websocket, "cleaned", **payload, text=cleaned)
+            await _send(websocket, "cleaned", **{**payload, "text": cleaned})
         except Exception as exc:  # noqa: BLE001
-            await _send(websocket, "cleaned", **payload, text=raw_text, cleanupFailed=True)
+            await _send(websocket, "cleaned", **{**payload, "text": raw_text}, cleanupFailed=True)
             await _send(
                 websocket,
                 "status",
