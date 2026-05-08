@@ -1,50 +1,141 @@
 # Persian Live Transcriber
 
-یک وب‌اپ کاملا لوکال برای ترنسکریپت زنده فارسی از میکروفون، صدای سیستم، یا ترکیب هر دو.
+A fully local web app for live Persian transcription from a microphone, system audio, or both at the same time.
 
-## اجرا
+The app runs a FastAPI server on localhost, serves a browser UI in Persian, transcribes audio with Whisper `large-v3`, and can optionally clean up the raw Persian transcript with a local Ollama model.
 
-```bash
-./start-transcriber.sh
-```
+## Features
 
-بعد از بالا آمدن سرور، UI روی این آدرس در دسترس است:
+- Live Persian speech-to-text from selected audio input devices.
+- Audio source modes for microphone, system audio, or a mixed microphone/system stream.
+- Whisper multilingual `large-v3` transcription through `lightning-whisper-mlx`.
+- Persian language locked to `fa`.
+- Optional local text cleanup through Ollama using `gpt-oss:20b`.
+- Side-by-side raw and cleaned transcript panes.
+- Copy controls and TXT, JSON, and SRT export.
+- Local-only default server bind at `127.0.0.1:8765`.
 
-```text
-http://127.0.0.1:8765
-```
+## Requirements
 
-## وابستگی‌های سیستم
-
-- `python3.11`
+- macOS with Python `3.11`
 - `uv`
 - `ffmpeg`
-- برای صدای سیستم روی macOS: `blackhole-2ch`
+- `lightning-whisper-mlx` compatible hardware/runtime
+- Optional: Ollama with the `gpt-oss:20b` model for transcript cleanup
+- Optional for macOS system audio capture: `blackhole-2ch`
 
-برای نصب BlackHole:
+Install the main system dependencies with Homebrew:
+
+```bash
+brew install uv ffmpeg
+```
+
+Install BlackHole for system audio capture:
 
 ```bash
 brew install --cask blackhole-2ch
 ```
 
-ممکن است بعد از نصب BlackHole نیاز به reboot یا restart صوتی داشته باشی. سپس در Audio MIDI Setup یک Multi-Output Device بساز که هم خروجی اصلی سیستم و هم `BlackHole 2ch` را شامل شود، و در UI همین ابزار `BlackHole 2ch` را به عنوان ورودی صدای سیستم انتخاب کن.
+After installing BlackHole, you may need to reboot or restart the macOS audio service. Then open Audio MIDI Setup and create a Multi-Output Device that includes both your normal output device and `BlackHole 2ch`. In the app UI, select `BlackHole 2ch` as the system-audio input.
 
-## مدل‌ها
+## Run
 
-- ASR اصلی: Whisper multilingual `large-v3` از طریق `lightning-whisper-mlx`.
-- زبان ترنسکریپت روی `fa` قفل شده است.
-- مدل‌های Ollama نصب‌شده ASR نیستند؛ `gpt-oss:20b` فقط برای پاک‌سازی اختیاری متن فارسی استفاده می‌شود.
+Start the local server:
 
-اولین اجرای ترنسکریپت ممکن است مدل Whisper را دانلود کند.
+```bash
+./start-transcriber.sh
+```
 
-برای دانلود/آماده‌سازی مدل قبل از استفاده از UI:
+Open the UI:
+
+```text
+http://127.0.0.1:8765
+```
+
+The start script sets local cache directories by default:
+
+- `UV_CACHE_DIR=.uv-cache`
+- `UV_TOOL_DIR=.uv-tools`
+- `HF_HOME=.hf-cache`
+- `HF_HUB_DISABLE_XET=1`
+
+## Model Preload
+
+The first transcription can take longer because Whisper may need to download or load the model. To prepare the model before using the UI, run:
 
 ```bash
 HF_HUB_DISABLE_XET=1 uv run --python 3.11 python scripts/preload_model.py
 ```
 
-## تست
+## Ollama Cleanup
+
+Ollama cleanup is optional. The ASR model produces the raw transcript first. When cleanup is enabled and Ollama is available, the app sends each raw Persian segment to `gpt-oss:20b` with instructions to only fix spacing, obvious punctuation, and clear recognition mistakes without changing meaning.
+
+Expected Ollama endpoint:
+
+```text
+http://127.0.0.1:11434
+```
+
+Expected model:
+
+```text
+gpt-oss:20b
+```
+
+Install the optional cleanup model:
+
+```bash
+ollama pull gpt-oss:20b
+```
+
+If Ollama is unavailable or cleanup times out, the UI keeps the raw transcript available.
+
+## Tests
+
+Run the test suite:
 
 ```bash
 uv run --python 3.11 --extra test pytest
 ```
+
+## Project Structure
+
+```text
+persian_live_transcriber/
+  asr.py              Whisper wrapper and Persian language configuration
+  audio.py            Input device discovery, capture, resampling, mixing, WAV writing
+  ollama_cleaner.py   Local Ollama cleanup prompt and API client
+  server.py           FastAPI routes, WebSocket transcription loop, static UI serving
+static/
+  index.html          Persian browser UI
+  app.js              UI state, WebSocket handling, copy/export actions
+  styles.css          Responsive layout and transcript styling
+scripts/
+  preload_model.py    Whisper model preload helper
+tests/
+  test_audio.py
+  test_ollama_cleaner.py
+  test_server.py
+```
+
+## API Surface
+
+- `GET /` serves the web UI.
+- `GET /api/status` reports runtime dependency, audio, ASR, BlackHole, and Ollama status.
+- `GET /api/devices` lists available input devices.
+- `WS /ws/transcribe` streams live transcription events.
+
+WebSocket query parameters:
+
+- `source`: `mic`, `system`, or `both`
+- `mic_device`: optional input device id
+- `system_device`: optional input device id
+- `cleanup`: `true` or `false`
+- `chunk_seconds`: segment duration, from `3` to `20` seconds
+
+## Notes
+
+- The app is designed for local use and binds to localhost by default.
+- Installed Ollama models are not used for speech recognition. Ollama is only used for optional Persian text cleanup.
+- The transcription language is intentionally fixed to Persian (`fa`).
