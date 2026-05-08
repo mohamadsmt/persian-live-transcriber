@@ -1,11 +1,20 @@
 from persian_live_transcriber.ollama_cleaner import build_cleanup_prompt, build_summary_prompt
 
 
-def test_cleanup_prompt_preserves_meaning_instruction() -> None:
-    prompt = build_cleanup_prompt("سلام این یک تست است")
-    assert "معنی" in prompt
+def test_cleanup_prompt_requests_meaning_aware_repair() -> None:
+    prompt = build_cleanup_prompt("من امروز meeting دارم با تیما deploy")
+    assert "از نظر معنایی قابل فهم" in prompt
+    assert "محافظه‌کارانه حدس بزن" in prompt
+    assert "جمله‌ای معنی‌دار" in prompt
+    assert "اطلاعات تازه" in prompt
+    assert "کلمات و مخفف‌های انگلیسی را با حروف لاتین حفظ کن" in prompt
+    assert "API" in prompt
+    assert "meeting" in prompt
+    assert "deploy" in prompt
     assert "خلاصه نکن" in prompt
-    assert "سلام این یک تست است" in prompt
+    assert "توضیح نده" in prompt
+    assert "Markdown اضافه نکن" in prompt
+    assert "من امروز meeting دارم با تیما deploy" in prompt
 
 
 def test_summary_prompt_is_detailed_and_grounded() -> None:
