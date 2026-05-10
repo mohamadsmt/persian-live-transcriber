@@ -26,19 +26,57 @@ The app runs a FastAPI server on localhost, serves a browser UI in Persian, tran
 - Optional: Ollama with the `gpt-oss:20b` model for transcript cleanup
 - Optional for macOS system audio capture: `blackhole-2ch`
 
-Install the main system dependencies with Homebrew:
+## Dependency Installation
+
+Install the required system tools with Homebrew:
 
 ```bash
 brew install uv ffmpeg
 ```
 
-Install BlackHole for system audio capture:
+The Python dependencies are managed by `uv`. Running the app or tests will create/use the local
+environment automatically:
+
+```bash
+uv run --python 3.11 python -c "import fastapi, sounddevice, lightning_whisper_mlx"
+uv run --python 3.11 --extra test pytest
+```
+
+Install the optional Ollama cleanup dependency:
+
+```bash
+brew install ollama
+ollama pull gpt-oss:20b
+```
+
+Install BlackHole if you want to capture system audio:
 
 ```bash
 brew install --cask blackhole-2ch
 ```
 
-After installing BlackHole, you may need to reboot or restart the macOS audio service. Then open Audio MIDI Setup and create a Multi-Output Device that includes both your normal output device and `BlackHole 2ch`. In the app UI, select `BlackHole 2ch` as the system-audio input.
+The BlackHole installer is a macOS `.pkg` installer and may ask for your admin password in
+Terminal. Reboot after installation; Homebrew's cask usually reports this as required.
+
+After reboot, open Audio MIDI Setup and create a Multi-Output Device:
+
+1. Click `+` and choose `Create Multi-Output Device`.
+2. Enable your normal output device, such as `MacBook Pro Speakers`.
+3. Enable `BlackHole 2ch`.
+4. Set macOS sound output to the new Multi-Output Device.
+5. In the app UI, select `BlackHole 2ch` as the system-audio input.
+
+Verify that the app can see BlackHole:
+
+```bash
+uv run --python 3.11 python -c "import sounddevice as sd; print(sd.query_devices())"
+```
+
+If `BlackHole 2ch` is still missing, reboot once more or restart CoreAudio:
+
+```bash
+sudo killall coreaudiod
+```
 
 ## Run
 

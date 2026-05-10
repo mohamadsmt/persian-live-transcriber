@@ -35,16 +35,24 @@ function setControlState() {
   const live = Boolean(state.socket);
   const busy = live || state.uploading;
   const hasFile = Boolean(el.audioFile.files?.length);
+  const needsMic = el.sourceSelect.value === "mic" || el.sourceSelect.value === "both";
+  const needsSystem = el.sourceSelect.value === "system" || el.sourceSelect.value === "both";
+  const micReady = !needsMic || hasSelectableOption(el.micDevice);
+  const systemReady = !needsSystem || hasSelectableOption(el.systemDevice);
 
   el.refreshButton.disabled = state.uploading;
-  el.startButton.disabled = busy;
+  el.startButton.disabled = busy || !micReady || !systemReady;
   el.stopButton.disabled = !live;
   el.sourceSelect.disabled = busy;
-  el.micDevice.disabled = busy;
-  el.systemDevice.disabled = busy;
+  el.micDevice.disabled = busy || !needsMic || !hasSelectableOption(el.micDevice);
+  el.systemDevice.disabled = busy || !needsSystem || !hasSelectableOption(el.systemDevice);
   el.cleanupToggle.disabled = busy;
   el.audioFile.disabled = busy;
   el.transcribeFileButton.disabled = busy || !hasFile;
+}
+
+function hasSelectableOption(select) {
+  return [...select.options].some((item) => item.value && !item.disabled);
 }
 
 function option(device) {
@@ -52,8 +60,22 @@ function option(device) {
   opt.value = String(device.id);
   opt.textContent = `${device.name} (${device.default_sample_rate}Hz)`;
   if (device.is_default_input) opt.dataset.default = "true";
+  if (device.is_system_audio) opt.dataset.systemAudio = "true";
   if (device.is_blackhole) opt.dataset.blackhole = "true";
   return opt;
+}
+
+function placeholder(text) {
+  const opt = document.createElement("option");
+  opt.value = "";
+  opt.textContent = text;
+  opt.disabled = true;
+  opt.selected = true;
+  return opt;
+}
+
+function isSystemAudioDevice(device) {
+  return Boolean(device.is_system_audio || device.is_blackhole);
 }
 
 async function refresh() {
@@ -67,9 +89,22 @@ async function refresh() {
   el.micDevice.replaceChildren();
   el.systemDevice.replaceChildren();
 
-  for (const device of devices.devices || []) {
+  const inputDevices = devices.devices || [];
+  const micDevices = inputDevices.filter((device) => !isSystemAudioDevice(device));
+  const systemDevices = inputDevices.filter(isSystemAudioDevice);
+
+  for (const device of micDevices) {
     el.micDevice.append(option(device));
+  }
+  for (const device of systemDevices) {
     el.systemDevice.append(option(device));
+  }
+
+  if (!micDevices.length) {
+    el.micDevice.append(placeholder("میکروفونی پیدا نشد"));
+  }
+  if (!systemDevices.length) {
+    el.systemDevice.append(placeholder("BlackHole 2ch پیدا نشد"));
   }
 
   const defaultMic = [...el.micDevice.options].find((item) => item.dataset.default === "true");
@@ -119,7 +154,8 @@ function escapeHtml(value) {
 }
 
 function selectedValue(select) {
-  return select.value ? Number(select.value) : null;
+  if (!select.value || select.selectedOptions[0]?.disabled) return null;
+  return Number(select.value);
 }
 
 function normalizeSegmentText(value) {
@@ -188,13 +224,25 @@ function resetTranscriptionOutput() {
 
 function start() {
   resetTranscriptionOutput();
+  const source = el.sourceSelect.value;
+  const mic = source === "system" ? null : selectedValue(el.micDevice);
+  const system = source === "mic" ? null : selectedValue(el.systemDevice);
+
+  if ((source === "mic" || source === "both") && mic === null) {
+    setStatus("میکروفونی برای ضبط انتخاب نشده است.");
+    setControlState();
+    return;
+  }
+  if ((source === "system" || source === "both") && system === null) {
+    setStatus("برای ضبط صدای سیستم، BlackHole 2ch را نصب/انتخاب کنید.");
+    setControlState();
+    return;
+  }
 
   const params = new URLSearchParams({
-    source: el.sourceSelect.value,
+    source,
     cleanup: el.cleanupToggle.checked ? "true" : "false",
   });
-  const mic = selectedValue(el.micDevice);
-  const system = selectedValue(el.systemDevice);
   if (mic !== null) params.set("mic_device", String(mic));
   if (system !== null) params.set("system_device", String(system));
 
@@ -434,6 +482,7 @@ document.addEventListener("click", async (event) => {
 el.refreshButton.addEventListener("click", refresh);
 el.startButton.addEventListener("click", start);
 el.stopButton.addEventListener("click", stop);
+el.sourceSelect.addEventListener("change", setControlState);
 el.audioFile.addEventListener("change", setControlState);
 el.transcribeFileButton.addEventListener("click", transcribeSelectedFile);
 

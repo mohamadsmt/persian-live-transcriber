@@ -11,6 +11,7 @@ import numpy as np
 
 TARGET_SAMPLE_RATE = 16_000
 DEFAULT_CHUNK_SECONDS = 10.0
+SYSTEM_AUDIO_DEVICE_MARKERS = ("blackhole",)
 
 
 AudioSource = Literal["mic", "system", "both"]
@@ -22,6 +23,7 @@ class AudioDevice:
     name: str
     max_input_channels: int
     default_sample_rate: int
+    is_system_audio: bool
     is_blackhole: bool
     is_default_input: bool
 
@@ -30,6 +32,11 @@ def _import_sounddevice():
     import sounddevice as sd  # type: ignore
 
     return sd
+
+
+def is_system_audio_device_name(name: str) -> bool:
+    normalized = name.lower()
+    return any(marker in normalized for marker in SYSTEM_AUDIO_DEVICE_MARKERS)
 
 
 def list_input_devices() -> list[AudioDevice]:
@@ -45,12 +52,14 @@ def list_input_devices() -> list[AudioDevice]:
 
         name = str(device.get("name") or f"Input {idx}")
         sample_rate = int(float(device.get("default_samplerate") or TARGET_SAMPLE_RATE))
+        is_system_audio = is_system_audio_device_name(name)
         result.append(
             AudioDevice(
                 id=idx,
                 name=name,
                 max_input_channels=max_inputs,
                 default_sample_rate=sample_rate,
+                is_system_audio=is_system_audio,
                 is_blackhole="blackhole" in name.lower(),
                 is_default_input=idx == default_input,
             )
@@ -60,11 +69,24 @@ def list_input_devices() -> list[AudioDevice]:
 
 
 def find_default_input_device(devices: Iterable[AudioDevice] | None = None) -> int | None:
-    candidates = list(devices) if devices is not None else list_input_devices()
+    candidates = [
+        device
+        for device in (list(devices) if devices is not None else list_input_devices())
+        if not device.is_system_audio
+    ]
     for device in candidates:
         if device.is_default_input:
             return device.id
     return candidates[0].id if candidates else None
+
+
+def find_device_by_id(devices: Iterable[AudioDevice], device_id: int | None) -> AudioDevice | None:
+    if device_id is None:
+        return None
+    for device in devices:
+        if device.id == device_id:
+            return device
+    return None
 
 
 def find_blackhole_device(devices: Iterable[AudioDevice] | None = None) -> int | None:
@@ -211,10 +233,20 @@ class CombinedRecorder:
         if self.source in {"mic", "both"}:
             if mic is None:
                 raise RuntimeError("No microphone input device is available.")
+            mic_info = find_device_by_id(devices, mic)
+            if mic_info is None:
+                raise RuntimeError("Selected microphone input device is not available.")
+            if mic_info.is_system_audio:
+                raise RuntimeError("Selected microphone input device is a system audio device.")
             selected.append(mic)
         if self.source in {"system", "both"}:
             if system is None:
                 raise RuntimeError("No system audio input device is available. Install/select BlackHole 2ch.")
+            system_info = find_device_by_id(devices, system)
+            if system_info is None:
+                raise RuntimeError("Selected system audio input device is not available.")
+            if not system_info.is_system_audio:
+                raise RuntimeError("Selected system audio input device is not a BlackHole/system audio device.")
             selected.append(system)
 
         self.recorders = [DeviceRecorder(device_id) for device_id in selected]
